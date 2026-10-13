@@ -1,0 +1,2 @@
+# Cegah directory listing (Index of /...) jika tidak ada file index
+Options -Indexes

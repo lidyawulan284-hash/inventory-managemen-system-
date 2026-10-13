@@ -8,6 +8,7 @@ USE `inventory_db`;
 CREATE TABLE IF NOT EXISTS `users` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `username` VARCHAR(50) NOT NULL UNIQUE,
+    `email` VARCHAR(100) NOT NULL UNIQUE,
     `password_hash` VARCHAR(255) NOT NULL,
     `full_name` VARCHAR(100) NOT NULL,
     `role` ENUM('admin', 'staff') NOT NULL DEFAULT 'staff',
@@ -77,9 +78,9 @@ CREATE TABLE IF NOT EXISTS `stock_movements` (
 
 -- Seed Data: Initial Users (Password: admin123 & staff123)
 -- Generated with password_hash(..., PASSWORD_DEFAULT)
-INSERT INTO `users` (`id`, `username`, `password_hash`, `full_name`, `role`) VALUES
-(1, 'admin', '$2y$10$YLbwdoaJF3VFe0mYW5IidO2tIn.79670gjqoqlT3nqlsj6/BmZrV2', 'Administrator Utama', 'admin'),
-(2, 'staff', '$2y$10$TZ05JczNtURtVl/hRb4EkOkY6QtkloWvrYpcFhRlLlg8b./e9sggy', 'Staff Gudang Logistik', 'staff')
+INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `full_name`, `role`) VALUES
+(1, 'admin', 'admin@inventory.com', '$2y$10$YLbwdoaJF3VFe0mYW5IidO2tIn.79670gjqoqlT3nqlsj6/BmZrV2', 'Administrator Utama', 'admin'),
+(2, 'staff', 'staff@inventory.com', '$2y$10$TZ05JczNtURtVl/hRb4EkOkY6QtkloWvrYpcFhRlLlg8b./e9sggy', 'Staff Gudang Logistik', 'staff')
 ON DUPLICATE KEY UPDATE `username`=`username`;
 
 -- Seed Data: Categories

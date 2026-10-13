@@ -10,8 +10,11 @@
 function startAppSession(): void
 {
     if (session_status() === PHP_SESSION_NONE) {
+        $lifetime = 86400 * 30; // 30 hari agar sesi tetap aktif dan tidak logout sendiri saat browser ditutup
+        ini_set('session.gc_maxlifetime', (string) $lifetime);
+
         $cookieParams = [
-            'lifetime' => 0, // Session cookie berlaku sampai browser ditutup
+            'lifetime' => $lifetime,
             'path'     => '/',
             'domain'   => '',
             'secure'   => isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on',
@@ -32,8 +35,9 @@ startAppSession();
  * Menggunakan session_regenerate_id(true) untuk mencegah Session Fixation.
  *
  * @param array $user Data pengguna dari database
+ * @param bool $remember Apakah sesi dipertahankan jangka panjang
  */
-function loginUser(array $user): void
+function loginUser(array $user, bool $remember = true): void
 {
     // Regenerasi session ID untuk mencegah serangan Session Fixation
     if (!headers_sent()) {
@@ -43,11 +47,26 @@ function loginUser(array $user): void
     $_SESSION['user'] = [
         'id'        => (int) $user['id'],
         'username'  => (string) $user['username'],
+        'email'     => (string) ($user['email'] ?? ''),
         'full_name' => (string) ($user['full_name'] ?? $user['name'] ?? $user['username']),
         'role'      => (string) $user['role'], // 'admin' atau 'staff'
     ];
 
     $_SESSION['logged_in_at'] = time();
+
+    // Pastikan cookie sesi berlaku 30 hari di peramban
+    if ($remember && !headers_sent()) {
+        $params = session_get_cookie_params();
+        setcookie(
+            session_name(),
+            session_id(),
+            time() + (86400 * 30),
+            $params["path"],
+            $params["domain"],
+            $params["secure"],
+            $params["httponly"]
+        );
+    }
 }
 
 /**

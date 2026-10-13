@@ -97,6 +97,7 @@ project php native/
 │   ├── suppliers/
 │   │   └── index.php        # Kelola data master supplier/vendor (Admin)
 │   ├── dashboard.php        # Halaman dashboard metrik & ringkasan stok
+│   ├── index.php            # Entrypoint router folder public (pengalihan otomatis)
 │   ├── login.php            # Halaman login autentikasi pengguna
 │   └── logout.php           # Pemusnah sesi & pengalihan ke halaman login
 │
@@ -104,6 +105,7 @@ project php native/
 │   ├── header.php           # Template layout atas, navigasi dinamis, & flash alerts
 │   └── footer.php           # Template layout bawah & status sistem
 │
+├── .htaccess                # Konfigurasi Apache (menonaktifkan directory browsing)
 ├── index.php                # Entrypoint router utama (pengalihan sesuai status login)
 └── README.md                # Dokumentasi lengkap proyek
 ```
@@ -182,10 +184,10 @@ Aplikasi akan secara otomatis mendeteksi sesi dan mengarahkan Anda ke halaman lo
 
 Database telah dilengkapi akun pengguna bawaan yang dapat langsung digunakan untuk pengujian:
 
-| Username | Password | Role | Hak Akses Utama |
+| Username / Email | Password | Role | Hak Akses Utama |
 |---|---|---|---|
-| **`admin`** | `admin123` | **`admin`** | Akses penuh: Dashboard, Produk (CRUD), Kategori (CRUD), Supplier (CRUD), Mutasi Stok (+/-), Laporan. |
-| **`staff`** | `staff123` | **`staff`** | Akses operasional: Dashboard, Katalog Produk (Read-Only), Pencatatan Mutasi Stok (+/-), Histori Mutasi. |
+| **`admin`** / `admin@inventory.com` | `admin123` | **`admin`** | Akses penuh: Dashboard, Produk (CRUD), Kategori (CRUD), Supplier (CRUD), Mutasi Stok (+/-), Laporan. |
+| **`staff`** / `staff@inventory.com` | `staff123` | **`staff`** | Akses operasional: Dashboard, Katalog Produk (Read-Only), Pencatatan Mutasi Stok (+/-), Histori Mutasi. |
 
 ---
 

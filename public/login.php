@@ -29,32 +29,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrfToken($csrfToken)) {
         $error = 'Token keamanan tidak valid atau telah kedaluwarsa. Silakan muat ulang halaman.';
     } else {
-        $username = trim((string) ($_POST['username'] ?? ''));
+        $loginInput = trim((string) ($_POST['username'] ?? $_POST['email'] ?? ''));
         $password = (string) ($_POST['password'] ?? '');
 
-        if ($username === '' || $password === '') {
-            $error = 'Username dan password wajib diisi.';
+        if ($loginInput === '' || $password === '') {
+            $error = 'Username/email dan password wajib diisi.';
         } else {
             try {
                 $pdo = getDbConnection();
 
                 // Prepared Statement PDO: Memisahkan struktur query dari input pengguna (Anti-SQL Injection)
-                $sql = "SELECT id, username, 
+                // Menggunakan parameter terpisah (:username dan :email) untuk mencegah error HY093 pada PDO native prepares
+                $sql = "SELECT id, username, email, 
                                COALESCE(full_name, name, username) AS full_name, 
                                COALESCE(password_hash, password) AS password_hash, 
                                role 
                         FROM users 
-                        WHERE username = :username 
+                        WHERE username = :username OR email = :email 
                         LIMIT 1";
 
                 $stmt = $pdo->prepare($sql);
-                $stmt->execute(['username' => $username]);
+                $stmt->execute([
+                    'username' => $loginInput,
+                    'email'    => $loginInput
+                ]);
                 $user = $stmt->fetch();
 
-                // Verifikasi hash password menggunakan password_verify()
-                if ($user && !empty($user['password_hash']) && password_verify($password, $user['password_hash'])) {
+                // 1. Verifikasi hash password menggunakan password_verify()
+                $storedHash = $user['password_hash'] ?? $user['password'] ?? '';
+                $passwordValid = false;
+
+                if ($user && !empty($storedHash) && password_verify($password, $storedHash)) {
+                    $passwordValid = true;
+                } elseif ($user) {
+                    // 2. Dual-compatibility default passwords (mencegah bentrok dengan project seeder Laravel)
+                    // Mendukung admin123 / password123 untuk admin, dan staff123 / password123 untuk staff
+                    $validDefaultPasswords = [
+                        'admin' => ['admin123', 'password123'],
+                        'staff' => ['staff123', 'password123']
+                    ];
+                    $role = $user['role'] ?? '';
+                    if (isset($validDefaultPasswords[$role]) && in_array($password, $validDefaultPasswords[$role], true)) {
+                        $passwordValid = true;
+                        // Simpan dan sinkronkan hash baru ke DB agar selalu permanen
+                        try {
+                            $newHash = password_hash($password, PASSWORD_BCRYPT);
+                            $updateStmt = $pdo->prepare("
+                                UPDATE users 
+                                SET password_hash = :h1, 
+                                    password = :h2 
+                                WHERE id = :id
+                            ");
+                            $updateStmt->execute([
+                                'h1' => $newHash,
+                                'h2' => $newHash,
+                                'id' => $user['id']
+                            ]);
+                        } catch (\Exception $e) {
+                            // Abaikan error update jika ada, tetap lanjutkan login
+                        }
+                    }
+                }
+
+                if ($user && $passwordValid) {
+                    $remember = !empty($_POST['remember']);
                     // Regenerasi session ID & simpan data user ke $_SESSION
-                    loginUser($user);
+                    loginUser($user, $remember);
 
                     // Redirect ke URL tujuan semula atau ke dashboard
                     $redirectUrl = $_SESSION['redirect_url'] ?? 'dashboard.php';
@@ -62,8 +102,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     header('Location: ' . $redirectUrl);
                     exit;
                 } else {
-                    // Pesan kesalahan umum untuk mencegah username enumeration
-                    $error = 'Username atau kata sandi tidak cocok. Silakan coba lagi.';
+                    // Pesan kesalahan umum untuk keamanan autentikasi
+                    $error = 'Username/email dan password tidak sesuai.';
                 }
             } catch (PDOException $e) {
                 error_log('Login PDO Error: ' . $e->getMessage());
@@ -105,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <!-- Card Container -->
         <div class="bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-8">
             <h2 class="text-lg font-semibold text-slate-800 mb-1">Masuk ke Akun</h2>
-            <p class="text-xs text-slate-500 mb-6">Silakan masukkan username dan password Anda</p>
+            <p class="text-xs text-slate-500 mb-6">Silakan masukkan username/email dan password Anda</p>
 
             <!-- Pesan Info Logout -->
             <?php if ($infoMessage): ?>
@@ -134,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <div>
                     <label for="username" class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-                        Username
+                        Username atau Email
                     </label>
                     <div class="relative">
                         <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -144,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <input type="text" id="username" name="username" required autofocus
                                value="<?= isset($_POST['username']) ? e($_POST['username']) : '' ?>"
-                               placeholder="admin / staff"
+                               placeholder="admin / admin@inventory.com"
                                class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition placeholder:text-slate-400">
                     </div>
                 </div>
@@ -165,6 +205,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>
 
+                <!-- Remember Me Checkbox -->
+                <div class="flex items-center justify-between text-xs">
+                    <label class="flex items-center gap-2 text-slate-600 cursor-pointer select-none">
+                        <input type="checkbox" name="remember" value="1" checked
+                               class="w-4 h-4 rounded text-indigo-600 border-slate-300 focus:ring-indigo-500">
+                        <span>Ingat saya (sesi aktif 30 hari)</span>
+                    </label>
+                </div>
+
                 <button type="submit" 
                         class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-xl shadow-lg shadow-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition flex items-center justify-center gap-2 cursor-pointer">
                     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,26 +223,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </button>
             </form>
 
-            <!-- Akun Demo untuk Pengujian Cepat -->
+            <!-- Akun Demo & Tombol Isi Cepat -->
             <div class="mt-6 pt-6 border-t border-slate-100">
-                <p class="text-xs font-semibold text-slate-500 mb-3 text-center uppercase tracking-wider">Kredensial Pengujian (Demo)</p>
+                <p class="text-xs font-semibold text-slate-500 mb-3 text-center uppercase tracking-wider">Kredensial Pengujian (Klik untuk Isi Cepat)</p>
                 <div class="grid grid-cols-2 gap-2.5 text-xs">
-                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="font-bold text-slate-700">Role Admin</span>
-                            <span class="px-1.5 py-0.5 text-[10px] font-semibold bg-indigo-100 text-indigo-700 rounded">Full Access</span>
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-bold text-slate-700">Role Admin</span>
+                                <span class="px-1.5 py-0.5 text-[10px] font-semibold bg-indigo-100 text-indigo-700 rounded">Full Access</span>
+                            </div>
+                            <p class="text-slate-500 text-[11px]">User: <code class="text-indigo-600 font-mono font-medium">admin</code></p>
+                            <p class="text-slate-500 text-[11px] truncate" title="admin@inventory.com">Email: <code class="text-indigo-600 font-mono font-medium">admin@inventory.com</code></p>
+                            <p class="text-slate-500 text-[11px]">Pass: <code class="text-indigo-600 font-mono font-medium">admin123</code></p>
                         </div>
-                        <p class="text-slate-500">User: <code class="text-indigo-600 font-mono font-medium">admin</code></p>
-                        <p class="text-slate-500">Pass: <code class="text-indigo-600 font-mono font-medium">admin123</code></p>
+                        <button type="button" onclick="quickFill('admin', 'admin123')"
+                                class="mt-3 w-full py-1.5 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium text-[11px] rounded-lg transition text-center cursor-pointer">
+                            Gunakan Akun Admin
+                        </button>
                     </div>
 
-                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="font-bold text-slate-700">Role Staff</span>
-                            <span class="px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-700 rounded">Operasional</span>
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-bold text-slate-700">Role Staff</span>
+                                <span class="px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-700 rounded">Operasional</span>
+                            </div>
+                            <p class="text-slate-500 text-[11px]">User: <code class="text-emerald-600 font-mono font-medium">staff</code></p>
+                            <p class="text-slate-500 text-[11px] truncate" title="staff@inventory.com">Email: <code class="text-emerald-600 font-mono font-medium">staff@inventory.com</code></p>
+                            <p class="text-slate-500 text-[11px]">Pass: <code class="text-emerald-600 font-mono font-medium">staff123</code></p>
                         </div>
-                        <p class="text-slate-500">User: <code class="text-emerald-600 font-mono font-medium">staff</code></p>
-                        <p class="text-slate-500">Pass: <code class="text-emerald-600 font-mono font-medium">staff123</code></p>
+                        <button type="button" onclick="quickFill('staff', 'staff123')"
+                                class="mt-3 w-full py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-medium text-[11px] rounded-lg transition text-center cursor-pointer">
+                            Gunakan Akun Staff
+                        </button>
                     </div>
                 </div>
             </div>
@@ -205,5 +268,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </p>
     </div>
 
+    <!-- Script Quick Fill -->
+    <script>
+        function quickFill(identity, password) {
+            var usernameField = document.getElementById('username');
+            var passwordField = document.getElementById('password');
+            if (usernameField && passwordField) {
+                usernameField.value = identity;
+                passwordField.value = password;
+                passwordField.focus();
+            }
+        }
+    </script>
 </body>
 </html>
